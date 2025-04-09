@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/dataspine-client-python.iml" filepath="$PROJECT_DIR$/.idea/dataspine-client-python.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../dataspine-client-python-test/.idea/dataspine-client-python-test.iml" filepath="$PROJECT_DIR$/../dataspine-client-python-test/.idea/dataspine-client-python-test.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../dataspine-client-test/.idea/dataspine-client-test.iml" filepath="$PROJECT_DIR$/../dataspine-client-test/.idea/dataspine-client-test.iml" />
+    </modules>
+  </component>
+</project>
