@@ -1,8 +1,11 @@
 import logging
+import uuid
 from dataclasses import dataclass
 from typing import Optional, Union, Protocol
 
 import requests
+
+from dataspine.config.config import interpolate_endpoint_url
 
 
 @dataclass
@@ -54,6 +57,22 @@ class TokenProvider(Protocol):
         Returns the authentication status of the token provider.
 
         :return: AuthenticationStatus object representing the current authentication status.
+        """
+        ...
+
+class TokenProviderFactory(Protocol):
+    """
+    A protocol for token provider factories.
+    """
+
+    def create_token_provider(self, region: str, data_product_id: uuid.UUID, application_id: Optional[uuid.UUID]) -> TokenProvider:
+        """
+        Creates a token provider.
+
+        :param region: Dataspine region.
+        :param data_product_id: UUID of the data product.
+        :param application_id: Optional UUID of the application.
+        :return: TokenProvider object.
         """
         ...
 
@@ -144,3 +163,67 @@ class InMemoryTokenProvider(TokenProvider):
         :return: None
         """
         self.token = token
+
+class InMemoryTokenProviderFactory(TokenProviderFactory):
+    """
+    A factory class for creating InMemoryTokenProvider instances.
+
+    :param initial_token: Optional initial token.
+    """
+    initial_token: Optional[str] = None
+
+    def __init__(self, initial_token: Optional[str] = None):
+        """
+        Initializes the InMemoryTokenProviderFactory with an optional initial token.
+
+        :param initial_token: Optional initial token.
+        """
+        self.initial_token = initial_token
+
+    def create_token_provider(self, region: str, data_product_id: uuid.UUID, application_id: Optional[uuid.UUID]) -> TokenProvider:
+        """
+        Creates an InMemoryTokenProvider instance.
+
+        :param region: Dataspine region.
+        :param data_product_id: UUID of the data product.
+        :param application_id: Optional UUID of the application.
+        :return: InMemoryTokenProvider instance.
+        """
+        return InMemoryTokenProvider(self.initial_token)
+
+class ExchangingTokenProviderFactory(TokenProviderFactory):
+    """
+    A factory class for creating ExchangingTokenProvider instances.
+
+    :param token_exchange_endpoint: The endpoint for token exchange.
+    :param verify: (DANGER) Flag indicating whether to verify SSL certificates. Do not set to False in production.
+    :param logger: Logger instance for logging.
+    :param subject_token_type: The type of the subject token. Default is 'urn:ietf:params:oauth:token-type:id_token'.
+    """
+    def __init__(self, token_exchange_endpoint: str, verify: bool, initial_token: str, logger: logging.Logger, subject_token_type: Optional[str] = 'urn:ietf:params:oauth:token-type:id_token'):
+        self.token_exchange_endpoint = token_exchange_endpoint
+        self.verify = verify
+        se;f/om
+        self.logger = logger
+        self.subject_token_type = subject_token_type
+
+    def create_token_provider(self, region: str, data_product_id: uuid.UUID, application_id: Optional[uuid.UUID]) -> TokenProvider:
+        """
+        Creates an ExchangingTokenProvider instance.
+
+        :param region: Dataspine region.
+        :param data_product_id: UUID of the data product.
+        :param application_id: Optional UUID of the application.
+        :return: ExchangingTokenProvider instance.
+        """
+        token_exchange_endpoint = interpolate_endpoint_url(self.token_exchange_endpoint, region, data_product_id, application_id)
+
+        token_provider = ExchangingTokenProvider(
+            token_exchange_endpoint=token_exchange_endpoint,
+            verify=self.verify,
+            logger=self.logger,
+            subject_token_type=self.subject_token_type
+        )
+
+        token_provider.exchange_token(self.initial_token)
+        return token_provider

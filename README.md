@@ -16,14 +16,25 @@ Work-in-Progress
 
 ## Usage
 ```python
+import uuid
+
 from dataspine.config.config_loader import ConfigLoader
+from dataspine.config.token_provider import UnauthorizedStatus
 
 config_loader = ConfigLoader().load()
 config_loader.auth_type = "aws-token-exchange"
 config = config_loader.build()
 
-authentication_status = config.token_provider.get_authentication_status()
-print(authentication_status.last_valid_token)
+region="<dataspine-region>"
+application_id = uuid.UUID("<application-d>")
+data_product_id = uuid.UUID("<data-product-id>")
+
+authentication_status = config.token_provider_factory.create_token_provider(region, data_product_id, application_id).get_authentication_status()
+
+if isinstance(authentication_status, UnauthorizedStatus):
+    print("Unable to authenticate")
+else:
+    print(f"Dataspine token: {authentication_status.last_valid_token}")
 ```
 
 ## Requirements

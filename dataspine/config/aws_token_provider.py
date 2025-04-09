@@ -1,6 +1,10 @@
 import logging
+import uuid
+from typing import Optional
 
-from dataspine.config.token_provider import ExchangingTokenProvider, TokenProvider, AuthenticationStatus
+from dataspine.config.config import interpolate_endpoint_url
+from dataspine.config.token_provider import ExchangingTokenProvider, TokenProvider, AuthenticationStatus, \
+    TokenProviderFactory
 
 try:
     import boto3
@@ -115,3 +119,40 @@ class AwsTokenProvider(TokenProvider):
         }
 
         return base64.b64encode(json.dumps(payload).encode()).decode()
+
+class AwsTokenProviderFactory(TokenProviderFactory):
+    """
+    A factory class for creating AwsTokenProvider instances.
+    """
+
+    def __init__(self, token_exchange_endpoint: str, verify: bool, logger: logging.Logger):
+        """
+        Initializes the AwsTokenProviderFactory with the token exchange endpoint and verification flag.
+
+        :param token_exchange_endpoint: The endpoint for token exchange.
+        :param verify: (DANGER) Flag indicating whether to verify SSL certificates. Do not set to False in production.
+        :param logger: Logger instance for logging.
+        """
+        self.token_exchange_endpoint = token_exchange_endpoint
+        self.verify = verify
+        self.logger = logger
+
+    def create_token_provider(self, region: str, data_product_id: uuid.UUID, application_id: Optional[uuid.UUID]) -> TokenProvider:
+        """
+        Creates an AwsTokenProvider instance.
+
+        :param region: Dataspine region.
+        :param data_product_id: UUID of the data product.
+        :param application_id: Optional UUID of the application.
+        :return: AwsTokenProvider instance.
+        """
+        token_exchange_endpoint = interpolate_endpoint_url(self.token_exchange_endpoint, region, data_product_id, application_id)
+
+        token_provider = AwsTokenProvider(
+            token_exchange_endpoint=token_exchange_endpoint,
+            verify=self.verify,
+            logger=self.logger
+        )
+
+        token_provider.exchange_token_from_env()
+        return token_provider

@@ -1,16 +1,17 @@
-from logging import Logger
-
 import logging
 import uuid
-from pydantic.v1 import BaseSettings
+from logging import Logger
 from typing import Optional, Callable, Awaitable
 
-from dataspine.config.aws_token_provider import AwsTokenProvider
-from dataspine.config.behavior_version import BehaviorVersion, latest
-from dataspine.config.config import Config, IngestConfig, OutletConfig, ApiConfig, uuid_to_base32
-from dataspine.config.token_provider import InMemoryTokenProvider, TokenProvider, ExchangingTokenProvider
+from pydantic.v1 import BaseSettings
 
-DEFAULT_ENDPOINT_URL = "https://{{component}}{{application}}{{data_product_id}}.{{region}}.cloud.dataspine.tech"
+from dataspine.config.aws_token_provider import AwsTokenProviderFactory
+from dataspine.config.behavior_version import BehaviorVersion, latest
+from dataspine.config.config import Config, IngestConfig, OutletConfig, ApiConfig
+from dataspine.config.interpolate import interpolate_component
+from dataspine.config.token_provider import TokenProvider, InMemoryTokenProviderFactory, ExchangingTokenProviderFactory
+
+DEFAULT_ENDPOINT_URL = "https://{{component}}{{application_id}}{{data_product_id}}.{{region}}.cloud.dataspine.tech"
 
 InputTokenCallback = Callable[[], Awaitable[str]]
 
@@ -18,7 +19,6 @@ class Settings(BaseSettings):
     """
     Settings class for Dataspine configuration.
 
-    :param region: AWS region.
     :param endpoint_url: Endpoint URL for the Dataspine service.
     :param token_exchange_endpoint: Token exchange endpoint URL.
     :param ingest_endpoint_url: Ingest endpoint URL.
@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     :param verify_tls: (DANGER) Flag to verify TLS certificates. Do not set to False in production.
     """
 
-    region: Optional[str] = None
     endpoint_url: Optional[str] = None
     token_exchange_endpoint: Optional[str] = None
     ingest_endpoint_url: Optional[str] = None
@@ -71,7 +70,6 @@ class ConfigLoader:
 
     auth_token: Optional[str] = None
     auth_type: Optional[str] = None
-    region: Optional[str] = None
     token_provider: Optional[TokenProvider] = None
     client_name: Optional[str] = None
     application_id: Optional[uuid.UUID] = None
@@ -87,37 +85,6 @@ class ConfigLoader:
         self.logger = logging.getLogger("dataspine")
 
     @staticmethod
-    def interpolate_endpoint_url(
-        endpoint_url: str,
-        component: str,
-        app_seg: str,
-        region: str,
-    ) -> str:
-        """
-        Interpolates the endpoint URL with the specified component, application segment, and region.
-
-        :param endpoint_url: The endpoint URL template.
-        :param component: The component to be replaced in the URL (e.g., 'ing', 'out', 'api').
-        :param app_seg: The application segment to be replaced in the URL.
-        :param region: The region to be replaced in the URL.
-        :return: The interpolated endpoint URL.
-        """
-        return endpoint_url.replace("{{component}}", component).replace("{{application}}", app_seg).replace("{{region}}", region)
-
-    @staticmethod
-    def strip_data_product_id(
-            endpoint_url: str,
-    ) -> str:
-        """
-        Strips the data product ID from the endpoint URL.
-
-        :param endpoint_url: The endpoint URL to be modified.
-        :return: The modified endpoint URL without the data product ID.
-        """
-
-        return endpoint_url.replace("{{data_product_id}}", "")
-
-    @staticmethod
     def load() -> 'ConfigLoader':
         """
         Loads the configuration from environment variables and settings.
@@ -126,8 +93,6 @@ class ConfigLoader:
         """
         config = ConfigLoader()
         settings = Settings()
-
-        config.region = settings.region
 
         if settings.endpoint_url:
             config.endpoint_url = settings.endpoint_url
@@ -154,27 +119,10 @@ class ConfigLoader:
 
         :return: Config object with the configured settings.
         """
-        app_seg = self.get_app_segment(self.application_id)
-
-        if not self.region:
-            raise ValueError("Region is required")
-
-        ingest_endpoint_url = ConfigLoader.interpolate_endpoint_url(
-            self.ingest_endpoint_url, 'ing', app_seg, self.region
-        )
-
-        outlet_endpoint_url = ConfigLoader.interpolate_endpoint_url(
-            self.outlet_endpoint_url, 'out', app_seg, self.region
-        )
-
-        api_endpoint_url = ConfigLoader.interpolate_endpoint_url(
-            self.api_endpoint_url, 'api', app_seg, self.region
-        )
-
-        token_exchange_endpoint_url = ConfigLoader.interpolate_endpoint_url(
-            self.token_exchange_endpoint_url, 'sts', app_seg, self.region
-        )
-        token_exchange_endpoint_url = ConfigLoader.strip_data_product_id(token_exchange_endpoint_url)
+        ingest_endpoint_url = interpolate_component(self.ingest_endpoint_url, 'ing')
+        outlet_endpoint_url = interpolate_component(self.outlet_endpoint_url, 'out')
+        api_endpoint_url = interpolate_component(self.api_endpoint_url, 'api')
+        token_exchange_endpoint_url = interpolate_component(self.token_exchange_endpoint_url, 'sts')
 
         if self.auth_type == 'static-token':
             if not self.auth_token:
@@ -184,42 +132,21 @@ class ConfigLoader:
                 raise ValueError("Only static auth tokens are supported.")
 
             token = self.auth_token.split(":")[1]
-            token_provider = InMemoryTokenProvider(token)
+            token_provider_factory = InMemoryTokenProviderFactory(token)
         elif self.auth_type == 'token-exchange':
-            token_provider = ExchangingTokenProvider(token_exchange_endpoint_url, self.verify_tls, self.logger)
-
-            if self.auth_token:
-                if not self.auth_token.startswith("static:"):
-                    raise ValueError("Only static auth tokens are supported.")
-
-                token = self.auth_token.split(":")[1]
-                token_provider.exchange_token(token)
-            else:
-                logging.warning("Exchanging token provider configured, but no initial auth token provided. Needs to be provided manually.")
+            token_provider_factory = ExchangingTokenProviderFactory(token_exchange_endpoint_url, self.verify_tls, self.logger)
         elif self.auth_type == 'aws-token-exchange':
-            token_provider = AwsTokenProvider(token_exchange_endpoint_url, self.verify_tls, self.logger)
-            token_provider.exchange_token_from_env()
+            token_provider_factory = AwsTokenProviderFactory(token_exchange_endpoint_url, self.verify_tls, self.logger)
         else:
-            token_provider = InMemoryTokenProvider()
+            token_provider_factory = InMemoryTokenProviderFactory()
 
         return Config(
             client_name=self.client_name,
-            region=self.region,
             endpoint_url=self.endpoint_url,
             behavior_version=self.behavior_version,
-            token_provider=token_provider,
+            token_provider_factory=token_provider_factory,
             ingest=IngestConfig(ingest_endpoint_url),
             outlet=OutletConfig(outlet_endpoint_url),
             api=ApiConfig(api_endpoint_url),
             logger=self.logger,
         )
-
-    @staticmethod
-    def get_app_segment(application_id: Optional[uuid.UUID]) -> str:
-        """
-        Generates the application segment for the endpoint URL based on the application ID.
-
-        :param application_id:
-        :return:
-        """
-        return ('-' + uuid_to_base32(application_id)) if application_id else ''
