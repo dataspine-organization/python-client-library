@@ -23,10 +23,11 @@ from dataspine.config.token_provider import UnauthorizedStatus
 
 config_loader = ConfigLoader().load()
 config_loader.auth_type = "aws-token-exchange"
+config_loader.principal_id = uuid.UUID("<principal-id>")
 config = config_loader.build()
 
-region="<dataspine-region>"
 application_id = uuid.UUID("<application-d>")
+region="<dataspine-region>"
 data_product_id = uuid.UUID("<data-product-id>")
 
 authentication_status = config.token_provider_factory.create_token_provider(region, data_product_id, application_id).get_authentication_status()

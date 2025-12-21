@@ -26,8 +26,9 @@ class AwsTokenProvider(TokenProvider):
     """
     token_exchange_endpoint: str
     exchanging_token_provider: ExchangingTokenProvider
+    principal_id: uuid.UUID
 
-    def __init__(self, token_exchange_endpoint: str, verify: bool, logger: logging.Logger):
+    def __init__(self, token_exchange_endpoint: str, verify: bool, logger: logging.Logger, principal_id: uuid.UUID):
         """
         Initializes the AwsTokenProvider with the token exchange endpoint and verification flag.
 
@@ -42,6 +43,7 @@ class AwsTokenProvider(TokenProvider):
             subject_token_type='urn:dataspine:params:oauth:grant-type:aws-iam-role-sigv4-token-exchange',
         )
         self.token_exchange_endpoint = token_exchange_endpoint
+        self.principal_id = principal_id
 
     def get_authentication_status(self) -> AuthenticationStatus:
         """
@@ -61,7 +63,8 @@ class AwsTokenProvider(TokenProvider):
         :return: None
         """
 
-        token = AwsTokenProvider.generate_sigv4_token(self.token_exchange_endpoint, aws_creds, aws_region)
+        token_endpoint = self.token_exchange_endpoint.rstrip("/") + "/token"
+        token = AwsTokenProvider.generate_sigv4_token(token_endpoint, self.principal_id, aws_creds, aws_region)
         self.exchanging_token_provider.exchange_token(token)
 
     def exchange_token_from_env(self) -> None:
@@ -82,11 +85,19 @@ class AwsTokenProvider(TokenProvider):
         """
 
         session = boto3.Session()
-        credentials = session.get_credentials().get_frozen_credentials()
+        aws_credentials = session.get_credentials()
+        if aws_credentials is None:
+            raise Exception(
+                "AWS credentials not found. Please configure AWS credentials using one of the following methods:\n"
+                "1. Set environment variables: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY\n"
+                "2. Configure AWS credentials file at ~/.aws/credentials\n"
+                "3. Use IAM role if running on EC2 or similar AWS service"
+            )
+        credentials = aws_credentials.get_frozen_credentials()
         self.exchange_token(credentials, "eu-central-1")
 
     @staticmethod
-    def generate_sigv4_token(target_token_exchange_endpoint: str, aws_creds: ReadOnlyCredentials, aws_region: str) -> str:
+    def generate_sigv4_token(target_token_exchange_endpoint: str, principal_id: uuid.UUID, aws_creds: ReadOnlyCredentials, aws_region: str) -> str:
         """
         Generates a base64-encoded JSON payload with SigV4-signed headers for
         GetCallerIdentity including a custom X-Dataspine-STS header
@@ -108,6 +119,7 @@ class AwsTokenProvider(TokenProvider):
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
             "X-Dataspine-STS": target_token_exchange_endpoint,
+            "X-Dataspine-Principal-Id": str(principal_id),
         }
 
         # Get credentials and sign the request
@@ -125,7 +137,7 @@ class AwsTokenProviderFactory(TokenProviderFactory):
     A factory class for creating AwsTokenProvider instances.
     """
 
-    def __init__(self, token_exchange_endpoint: str, verify: bool, logger: logging.Logger):
+    def __init__(self, token_exchange_endpoint: str, verify: bool, logger: logging.Logger, principal_id: uuid.UUID):
         """
         Initializes the AwsTokenProviderFactory with the token exchange endpoint and verification flag.
 
@@ -136,6 +148,7 @@ class AwsTokenProviderFactory(TokenProviderFactory):
         self.token_exchange_endpoint = token_exchange_endpoint
         self.verify = verify
         self.logger = logger
+        self.principal_id = principal_id
 
     def create_token_provider(self, region: str, data_product_id: uuid.UUID, application_id: Optional[uuid.UUID]) -> TokenProvider:
         """
@@ -151,7 +164,8 @@ class AwsTokenProviderFactory(TokenProviderFactory):
         token_provider = AwsTokenProvider(
             token_exchange_endpoint=token_exchange_endpoint,
             verify=self.verify,
-            logger=self.logger
+            logger=self.logger,
+            principal_id=self.principal_id,
         )
 
         token_provider.exchange_token_from_env()

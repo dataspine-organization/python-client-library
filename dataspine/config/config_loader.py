@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     api_endpoint_url: Optional[str] = None
     client_name: Optional[str] = None
     application_id: Optional[uuid.UUID] = None
+    principal_id: Optional[uuid.UUID] = None
     auth_token_source: Optional[str] = None
     auth_type: Optional[str] = None
     verify_tls: Optional[bool] = None
@@ -73,6 +74,7 @@ class ConfigLoader:
     token_provider: Optional[TokenProvider] = None
     client_name: Optional[str] = None
     application_id: Optional[uuid.UUID] = None
+    principal_id: Optional[uuid.UUID] = None
 
     def __init__(self, behavior_version: Optional[BehaviorVersion] = None):
         """
@@ -110,6 +112,7 @@ class ConfigLoader:
         config.auth_type = settings.auth_type or config.auth_type
         config.client_name = settings.client_name or config.client_name
         config.application_id = settings.application_id or config.application_id
+        config.principal_id = settings.principal_id or config.principal_id
 
         return config
 
@@ -136,7 +139,9 @@ class ConfigLoader:
         elif self.auth_type == 'token-exchange':
             token_provider_factory = ExchangingTokenProviderFactory(token_exchange_endpoint_url, self.verify_tls, self.logger)
         elif self.auth_type == 'aws-token-exchange':
-            token_provider_factory = AwsTokenProviderFactory(token_exchange_endpoint_url, self.verify_tls, self.logger)
+            if self.principal_id is None:
+                raise ValueError("principal_id is required for aws-token-exchange.")
+            token_provider_factory = AwsTokenProviderFactory(token_exchange_endpoint_url, self.verify_tls, self.logger, self.principal_id)
         else:
             token_provider_factory = InMemoryTokenProviderFactory()
 

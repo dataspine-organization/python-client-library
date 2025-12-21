@@ -203,7 +203,6 @@ class ExchangingTokenProviderFactory(TokenProviderFactory):
     def __init__(self, token_exchange_endpoint: str, verify: bool, initial_token: str, logger: logging.Logger, subject_token_type: Optional[str] = 'urn:ietf:params:oauth:token-type:id_token'):
         self.token_exchange_endpoint = token_exchange_endpoint
         self.verify = verify
-        se;f/om
         self.logger = logger
         self.subject_token_type = subject_token_type
 
